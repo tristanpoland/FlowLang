@@ -1,97 +1,134 @@
-use eframe::egui;
-use egui_node_graph::{NodeDataTrait, DataTypeTrait, NodeResponse, NodeTemplateTrait, 
-    WidgetValueTrait, Graph, GraphEditorState, NodeId, NodeTemplateIter, InputParamKind};
 use std::borrow::Cow;
-use std::collections::HashMap;
+use eframe::egui;
+use eframe::epaint::Color32;
+use egui_node_graph::*;
 
-#[derive(Clone, Debug, Default)]
-pub struct UserState;
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum DataType {
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum RustDataType {
     String,
     Number,
-    Boolean,
-}
-
-impl DataTypeTrait<UserState> for DataType {
-    fn data_type_color(&self, _user_state: &mut UserState) -> egui::epaint::Color32 {
-        match self {
-            DataType::String => egui::epaint::Color32::from_rgb(28, 144, 243),
-            DataType::Number => egui::epaint::Color32::from_rgb(243, 149, 28),
-            DataType::Boolean => egui::epaint::Color32::from_rgb(149, 243, 28),
-        }
-    }
-
-    fn name(&self) -> Cow<'static, str> {
-        match self {
-            DataType::String => "String".into(),
-            DataType::Number => "Number".into(),
-            DataType::Boolean => "Boolean".into(),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
-enum ValueType {
+pub enum RustValueType {
     String(String),
     Number(f64),
-    Boolean(bool),
 }
 
-impl Default for ValueType {
+impl Default for RustValueType {
     fn default() -> Self {
-        ValueType::String(String::new())
+        Self::String(String::new())
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum RustNodeTemplate {
+    Function,
+    Value,
+}
+
+#[derive(Clone)]
+pub struct RustNodeData {
+    template: RustNodeTemplate,
+}
+
+impl RustNodeData {
+    pub fn template(&self) -> RustNodeTemplate {
+        self.template
     }
 }
 
 #[derive(Clone, Debug)]
-enum UserResponse {
+pub enum RustResponse {
     None,
 }
 
-impl egui_node_graph::UserResponseTrait for UserResponse {}
+impl UserResponseTrait for RustResponse {}
 
-#[derive(Clone, Debug)]
-struct NodeData {
-    node_type: NodeType,
-    values: HashMap<String, ValueType>,
+#[derive(Default)]
+pub struct RustGraphState;
+
+impl DataTypeTrait<RustGraphState> for RustDataType {
+    fn data_type_color(&self, _user_state: &mut RustGraphState) -> Color32 {
+        // Just use a default color, no custom colors
+        Default::default()
+    }
+
+    fn name(&self) -> Cow<'_, str> {
+        match self {
+            RustDataType::String => Cow::Borrowed("string"),
+            RustDataType::Number => Cow::Borrowed("number"),
+        }
+    }
 }
 
-impl NodeDataTrait for NodeData {
-    type Response = UserResponse;
-    type UserState = UserState;
-    type DataType = DataType;
-    type ValueType = ValueType;
+impl NodeTemplateTrait for RustNodeTemplate {
+    type NodeData = RustNodeData;
+    type DataType = RustDataType;
+    type ValueType = RustValueType;
+    type UserState = RustGraphState;
+
+    fn node_finder_label(&self, _user_state: &mut Self::UserState) -> Cow<'_, str> {
+        match self {
+            RustNodeTemplate::Function => Cow::Borrowed("Function"),
+            RustNodeTemplate::Value => Cow::Borrowed("Value"),
+        }
+    }
+
+    fn node_graph_label(&self, user_state: &mut Self::UserState) -> String {
+        self.node_finder_label(user_state).into()
+    }
+
+    fn user_data(&self, _user_state: &mut Self::UserState) -> Self::NodeData {
+        RustNodeData { template: *self }
+    }
+
+    fn build_node(
+        &self,
+        graph: &mut Graph<RustNodeData, RustDataType, RustValueType>,
+        _user_state: &mut Self::UserState,
+        node_id: NodeId,
+    ) {
+        match self {
+            RustNodeTemplate::Function => {
+                graph.add_input_param(
+                    node_id,
+                    "input".into(),
+                    RustDataType::String,
+                    RustValueType::String(String::new()),
+                    InputParamKind::ConnectionOrConstant,
+                    true,
+                );
+                graph.add_output_param(node_id, "output".into(), RustDataType::String);
+            }
+            RustNodeTemplate::Value => {
+                graph.add_output_param(node_id, "value".into(), RustDataType::String);
+            }
+        }
+    }
+}
+
+impl NodeDataTrait for RustNodeData {
+    type Response = RustResponse;
+    type UserState = RustGraphState;
+    type DataType = RustDataType;
+    type ValueType = RustValueType;
 
     fn bottom_ui(
         &self,
-        ui: &mut egui::Ui,
+        _ui: &mut egui::Ui,
         _node_id: NodeId,
-        _graph: &Graph<Self, Self::DataType, Self::ValueType>,
+        _graph: &Graph<RustNodeData, Self::DataType, Self::ValueType>,
         _user_state: &mut Self::UserState,
-    ) -> Vec<NodeResponse<Self::Response, Self>> {
-        match &self.node_type {
-            NodeType::Variable => {
-                if let Some(ValueType::String(name)) = self.values.get("name") {
-                    ui.label(name);
-                }
-            }
-            NodeType::FunctionCall => {
-                if let Some(ValueType::String(name)) = self.values.get("function_name") {
-                    ui.label(name);
-                }
-            }
-            _ => {}
-        }
+    ) -> Vec<NodeResponse<Self::Response, RustNodeData>> {
         vec![]
     }
 }
 
-impl WidgetValueTrait for ValueType {
-    type Response = UserResponse;
-    type UserState = UserState;
-    type NodeData = NodeData;
+impl WidgetValueTrait for RustValueType {
+    type Response = RustResponse;
+    type UserState = RustGraphState;
+    type NodeData = RustNodeData;
 
     fn value_widget(
         &mut self,
@@ -102,208 +139,72 @@ impl WidgetValueTrait for ValueType {
         _node_data: &Self::NodeData,
     ) -> Vec<Self::Response> {
         match self {
-            ValueType::String(s) => {
-                if ui.text_edit_singleline(s).changed() {
-                    vec![UserResponse::None]
-                } else {
-                    vec![]
-                }
+            RustValueType::String(value) => {
+                ui.horizontal(|ui| {
+                    ui.label(param_name);
+                    ui.text_edit_singleline(value);
+                });
             }
-            ValueType::Number(n) => {
-                if ui.add(egui::DragValue::new(n)).changed() {
-                    vec![UserResponse::None]
-                } else {
-                    vec![]
-                }
-            }
-            ValueType::Boolean(b) => {
-                if ui.checkbox(b, param_name).changed() {
-                    vec![UserResponse::None]
-                } else {
-                    vec![]
-                }
+            RustValueType::Number(value) => {
+                ui.horizontal(|ui| {
+                    ui.label(param_name);
+                    ui.add(egui::DragValue::new(value));
+                });
             }
         }
+        vec![]
     }
 }
 
-#[derive(Clone, Debug)]
-enum NodeType {
-    MainFunction,
-    Variable,
-    FunctionCall,
-    StringLiteral,
-    NumberLiteral,
-    BooleanLiteral,
-    Print,
-}
-
-#[derive(Clone, Debug)]
-struct NodeTemplate {
-    node_type: NodeType,
-    name: String,
-}
-
-impl Default for NodeTemplate {
-    fn default() -> Self {
-        Self {
-            node_type: NodeType::MainFunction,
-            name: "Main Function".into(),
-        }
-    }
-}
-
-impl NodeTemplateTrait for NodeTemplate {
-    type NodeData = NodeData;
-    type DataType = DataType;
-    type ValueType = ValueType;
-    type UserState = UserState;
-    
-    fn node_finder_label(&self, _user_state: &mut Self::UserState) -> Cow<'_, str> {
-        self.name.as_str().into()
-    }
-
-    fn node_graph_label(&self, _user_state: &mut Self::UserState) -> String {
-        self.name.clone()
-    }
-
-    fn user_data(&self, _user_state: &mut Self::UserState) -> Self::NodeData {
-        NodeData {
-            node_type: self.node_type.clone(),
-            values: HashMap::new(),
-        }
-    }
-
-    fn build_node(
-        &self,
-        graph: &mut Graph<Self::NodeData, Self::DataType, Self::ValueType>,
-        _user_state: &mut Self::UserState,
-        node_id: NodeId,
-    ) {
-        match &graph.nodes[node_id].user_data.node_type {
-            NodeType::MainFunction => {
-                graph.add_output_param(
-                    node_id,
-                    "output".to_string(),
-                    DataType::String,
-                );
-            },
-            NodeType::Variable => {
-                graph.add_input_param(
-                    node_id,
-                    "Value".to_string(),
-                    DataType::String,
-                    ValueType::String(String::new()),
-                    InputParamKind::ConnectionOnly,
-                    true,
-                );
-                graph.add_output_param(
-                    node_id,
-                    "output".to_string(),
-                    DataType::String,
-                );
-            },
-            NodeType::FunctionCall => {
-                graph.add_input_param(
-                    node_id,
-                    "Arguments".to_string(),
-                    DataType::String,
-                    ValueType::String(String::new()),
-                    InputParamKind::ConnectionOnly,
-                    true,
-                );
-                graph.add_output_param(
-                    node_id,
-                    "output".to_string(),
-                    DataType::String,
-                );
-            },
-            _ => {}
-        }
-    }
-}
-
-#[derive(Default)]
-pub struct NodeContainer {
-    pub node_templates: Vec<NodeTemplate>,
-}
-
-impl NodeTemplateIter for NodeContainer {
-    type Item = NodeTemplate;
+pub struct RustNodeTemplates;
+impl NodeTemplateIter for RustNodeTemplates {
+    type Item = RustNodeTemplate;
     
     fn all_kinds(&self) -> Vec<Self::Item> {
-        vec![
-            NodeTemplate {
-                node_type: NodeType::MainFunction,
-                name: "Main Function".into(),
-            },
-            NodeTemplate {
-                node_type: NodeType::Variable,
-                name: "Variable".into(),
-            },
-            NodeTemplate {
-                node_type: NodeType::FunctionCall,
-                name: "Function Call".into(),
-            },
-            NodeTemplate {
-                node_type: NodeType::StringLiteral,
-                name: "String Literal".into(),
-            },
-            NodeTemplate {
-                node_type: NodeType::NumberLiteral,
-                name: "Number Literal".into(),
-            },
-            NodeTemplate {
-                node_type: NodeType::BooleanLiteral,
-                name: "Boolean Literal".into(),
-            },
-            NodeTemplate {
-                node_type: NodeType::Print,
-                name: "Print".into(),
-            },
-        ]
+        vec![RustNodeTemplate::Function, RustNodeTemplate::Value]
     }
 }
 
-#[derive(Default)]
-pub struct MyEditorState {
-    graph: Graph<NodeData, DataType, ValueType>,
-    graph_state: GraphEditorState<NodeData, DataType, ValueType, NodeContainer, UserState>,
-    node_container: NodeContainer,
+pub struct RustNodeEditor {
+    state: GraphEditorState<RustNodeData, RustDataType, RustValueType, RustNodeTemplate, RustGraphState>,
+    user_state: RustGraphState,
 }
 
-pub struct NodeCodegenApp {
-    state: MyEditorState,
-    user_state: UserState,
-}
-
-impl NodeCodegenApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+impl Default for RustNodeEditor {
+    fn default() -> Self {
         Self {
-            state: MyEditorState::default(),
-            user_state: UserState::default(),
+            state: GraphEditorState::default(),
+            user_state: RustGraphState::default(),
         }
     }
 }
 
-impl eframe::App for NodeCodegenApp {
+impl eframe::App for RustNodeEditor {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.state.graph_state.draw_graph_editor(
+            let graph_response = self.state.draw_graph_editor(
                 ui,
-                &mut self.state.graph,
+                RustNodeTemplates,
                 &mut self.user_state,
-                &self.state.node_container,
             );
+
+            for node_response in graph_response.node_responses {
+                if let NodeResponse::User(response) = node_response {
+                    match response {
+                        RustResponse::None => {}
+                    }
+                }
+            }
         });
     }
 }
 
-fn main() -> eframe::Result<()> {
-    let native_options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "Rust Code Generator",
-        native_options,
-        Box::new(|cc| Ok(Box::new(NodeCodegenApp::new(cc)))),
-    )
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let options = eframe::NativeOptions::default();
+    Ok(eframe::run_native(
+        "Rust Node Editor",
+        options,
+        Box::new(|_cc| Box::new(RustNodeEditor::default())),
+    ))
 }
