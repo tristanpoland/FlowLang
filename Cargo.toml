@@ -1,0 +1,10 @@
+[package]
+name = "FlowLang"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.30.0"
+egui_node_graph = "0.4"
+epaint = "0.30.0"
+egui = "0.30.0"
